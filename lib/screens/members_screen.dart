@@ -1,135 +1,126 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:waymate/core/theme.dart';
-import 'package:waymate/services/auth_service.dart';
-import 'package:waymate/services/location_service.dart';
-import 'package:waymate/models/user_model.dart';
-import 'package:waymate/screens/member_detail_screen.dart';
 
-class MembersScreen extends StatelessWidget {
-  final String groupId;
-  const MembersScreen({required this.groupId, super.key});
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../core/theme.dart';
+import '../services/auth_service.dart';
+import '../services/location_service.dart';
+import '../models/user_model.dart';
+
+class MembersScreen extends StatefulWidget {
+  const MembersScreen({super.key});
+
+  @override
+  State<MembersScreen> createState() => _MembersScreenState();
+}
+
+class _MembersScreenState extends State<MembersScreen> {
+  final _authService = AuthService();
+  final _locationService = LocationService();
+  String? _groupId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGroupId();
+  }
+
+  Future<void> _loadGroupId() async {
+    final uid = _authService.currentUser?.uid;
+    if (uid == null) return;
+    final profile = await _authService.getUserProfile(uid);
+    if (mounted) setState(() => _groupId = profile?.groupId);
+  }
+
+  Future<void> _callNumber(String phone) async {
+    final uri = Uri(scheme: 'tel', path: phone);
+    try {
+      await launchUrl(uri);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
-    final authService = AuthService();
-    final locationService = LocationService();
-
     return Scaffold(
+      backgroundColor: AppColors.navy,
       appBar: AppBar(title: const Text('Group Members')),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: locationService.groupLocationsStream(groupId),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: _groupId == null
+          ? const Center(child: CircularProgressIndicator())
+          : StreamBuilder<QuerySnapshot>(
+              stream: _locationService.groupLocationsStream(_groupId!),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                final docs = snapshot.data!.docs;
+                if (docs.isEmpty) return const Center(child: Text('No members yet.', style: TextStyle(color: AppColors.textOnNavySecondary)));
 
-          final touristDocs = snapshot.data!.docs.where((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            return data['role'] != 'guide';
-          }).toList();
+                final now = DateTime.now();
 
-          if (touristDocs.isEmpty) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text(
-                  'No tourists have joined this group yet.',
-                  textAlign: TextAlign.center,
-                  style: AppTextStyles.body,
-                ),
-              ),
-            );
-          }
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final uid = doc.id;
+                    final role = data['role'] as String? ?? 'tourist';
+                    final ts = data['timestamp'] as Timestamp?;
+                    final isActive = ts != null && now.difference(ts.toDate()).inMinutes < 10;
+                    final battery = data['batteryLevel'] as int? ?? -1;
 
-          final now = DateTime.now();
+                    return FutureBuilder<AppUser?>(
+                      future: _authService.getUserProfile(uid),
+                      builder: (context, userSnap) {
+                        final name = userSnap.data?.name ?? '...';
+                        final phone = userSnap.data?.phone ?? '';
 
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: touristDocs.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final doc = touristDocs[index];
-              final data = doc.data() as Map<String, dynamic>;
-              final uid = doc.id;
-              final ts = data['timestamp'] as Timestamp?;
-              final isActive = ts != null && now.difference(ts.toDate()).inMinutes < 10;
-
-              return FutureBuilder<AppUser?>(
-                future: authService.getUserProfile(uid),
-                builder: (context, userSnap) {
-                  final user = userSnap.data;
-                  final name = user?.name ?? 'Loading...';
-                  final phone = user?.phone ?? '';
-
-                  return Material(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    elevation: 1,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: user == null
-                          ? null
-                          : () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => MemberDetailScreen(member: user)),
-                              );
-                            },
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(color: AppColors.navyCard, borderRadius: BorderRadius.circular(14)),
+                          child: Row(children: [
                             CircleAvatar(
-                              radius: 24,
-                              backgroundColor: AppColors.primary.withOpacity(0.15),
+                              radius: 20,
+                              backgroundColor: AppColors.navy,
                               child: Text(
                                 name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 18),
+                                style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold),
                               ),
                             ),
-                            const SizedBox(width: 14),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                                  if (phone.isNotEmpty) ...[
-                                    const SizedBox(height: 2),
-                                    Text(phone, style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
-                                  ],
+                                  Row(children: [
+                                    Text(name, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                                    if (role == 'guide') ...[
+                                      const SizedBox(width: 6),
+                                      const Icon(Icons.shield, color: AppColors.gold, size: 14),
+                                    ],
+                                  ]),
+                                  const SizedBox(height: 2),
+                                  Row(children: [
+                                    Container(width: 7, height: 7, decoration: BoxDecoration(color: isActive ? AppColors.success : AppColors.inactive, shape: BoxShape.circle)),
+                                    const SizedBox(width: 5),
+                                    Text(isActive ? 'Active' : 'Inactive', style: TextStyle(fontSize: 11, color: isActive ? AppColors.success : AppColors.textOnNavyMuted)),
+                                    if (battery >= 0 && battery <= 15) ...[
+                                      const SizedBox(width: 8),
+                                      const Icon(Icons.battery_alert, color: AppColors.medical, size: 13),
+                                    ],
+                                  ]),
                                 ],
                               ),
                             ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Icon(
-                                  isActive ? Icons.check_circle : Icons.circle_outlined,
-                                  color: isActive ? AppColors.success : Colors.grey,
-                                  size: 20,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  isActive ? 'Active' : 'Inactive',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: isActive ? AppColors.success : Colors.grey.shade600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const Icon(Icons.chevron_right, color: Colors.grey),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          );
-        },
-      ),
+                            if (phone.isNotEmpty)
+                              IconButton(icon: const Icon(Icons.phone, color: AppColors.gold), onPressed: () => _callNumber(phone)),
+                          ]),
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
     );
   }
 }

@@ -26,72 +26,48 @@ class NavyCard extends StatelessWidget {
   }
 }
 
-/// Press-and-hold SOS button — requires a genuine 2.5s hold before
-/// firing. Uses onTapDown/onTapUp/onTapCancel — reliable across
-/// mouse, trackpad, and touch input.
-class SosButton extends StatefulWidget {
+/// One-tap SOS with an instant confirmation dialog — fast, but with
+/// a quick safety check so a stray tap can't fire it silently.
+class SosButton extends StatelessWidget {
   final VoidCallback onTriggered;
   const SosButton({required this.onTriggered, super.key});
 
-  @override
-  State<SosButton> createState() => _SosButtonState();
-}
-
-class _SosButtonState extends State<SosButton> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 2500));
-    _controller.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        widget.onTriggered();
-        _controller.reset();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  Future<void> _handleTap(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.navyCard,
+        title: const Text('Send SOS?', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'This will alert your guide, emergency contact, and nearest group member with your location.',
+          style: TextStyle(color: AppColors.textOnNavySecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Send SOS', style: TextStyle(color: AppColors.sos, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) onTriggered();
   }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) => _controller.reverse(),
-      onTapCancel: () => _controller.reverse(),
+      onTap: () => _handleTap(context),
       child: Container(
         height: 64,
-        decoration: BoxDecoration(
-          color: AppColors.sos,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Stack(
-          alignment: Alignment.center,
+        decoration: BoxDecoration(color: AppColors.sos, borderRadius: BorderRadius.circular(16)),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) => FractionallySizedBox(
-                alignment: Alignment.centerLeft,
-                widthFactor: _controller.value,
-                child: Container(
-                  decoration: BoxDecoration(color: AppColors.sosPressed, borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
-            ),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.warning_rounded, color: Colors.white, size: 26),
-                SizedBox(width: 10),
-                Text('HOLD FOR SOS', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-              ],
-            ),
+            Icon(Icons.warning_rounded, color: Colors.white, size: 26),
+            SizedBox(width: 10),
+            Text('TAP FOR SOS', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
           ],
         ),
       ),
@@ -145,7 +121,8 @@ class MedicalAidButton extends StatelessWidget {
 }
 
 /// Wraps any screen with the persistent emergency action bar and a
-/// consistent app bar with the AI Assistant icon always present.
+/// floating AI Assistant button, positioned so it never overlaps the
+/// Medical Aid / SOS stack.
 class AppScaffoldWithSos extends StatelessWidget {
   final Widget body;
   final String title;
@@ -173,11 +150,6 @@ class AppScaffoldWithSos extends StatelessWidget {
       appBar: AppBar(
         title: Text(title),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.auto_awesome, color: AppColors.gold),
-            tooltip: 'AI Assistant',
-            onPressed: onAssistantTap,
-          ),
           if (onLogout != null)
             IconButton(icon: const Icon(Icons.logout), onPressed: onLogout),
         ],
@@ -185,6 +157,23 @@ class AppScaffoldWithSos extends StatelessWidget {
       body: Stack(
         children: [
           Positioned.fill(child: body),
+          Positioned(
+            right: 16,
+            bottom: 190,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onAssistantTap,
+              child: Container(
+                width: 54, height: 54,
+                decoration: BoxDecoration(
+                  color: AppColors.gold,
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
+                ),
+                child: const Icon(Icons.auto_awesome, color: AppColors.navyDark, size: 26),
+              ),
+            ),
+          ),
           Positioned(
             left: 16,
             right: 16,

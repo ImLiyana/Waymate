@@ -14,7 +14,9 @@ class AuthService {
 
   Future<void> _ensureGoogleSignInReady() async {
     if (!_googleSignInReady) {
-      await _googleSignIn.initialize();
+      await _googleSignIn.initialize(
+        serverClientId: '293813064839-steoi3dtef2sgg6unnierafljsd9pcea.apps.googleusercontent.com',
+      );
       _googleSignInReady = true;
     }
   }
@@ -62,7 +64,12 @@ class AuthService {
     await _auth.signOut();
   }
 
-  // Sign in with a Google account
+  /// Signs in with Google. Returns the existing profile if this account
+  /// already registered. Returns null if this is a brand-new Google
+  /// account with no profile yet — the caller should then redirect to
+  /// the registration form to finish setup (name/email are pre-filled
+  /// from the Google account, but phone/role/emergency contact still
+  /// need to be collected).
   Future<AppUser?> signInWithGoogle() async {
     await _ensureGoogleSignInReady();
 
@@ -81,14 +88,24 @@ class AuthService {
     final userCredential = await _auth.signInWithCredential(credential);
     final uid = userCredential.user!.uid;
 
-    final existing = await getUserProfile(uid);
-    if (existing != null) return existing;
+    return await getUserProfile(uid); // null if never registered
+  }
 
+  /// Completes registration for a user who signed in with Google but
+  /// had no existing profile (first-time Google sign-in).
+  Future<AppUser> completeGoogleProfile({
+    required String uid,
+    required String name,
+    required String phone,
+    required String role,
+    String? emergencyContactPhone,
+  }) async {
     final newUser = AppUser(
       uid: uid,
-      name: userCredential.user!.displayName ?? '',
-      phone: userCredential.user!.phoneNumber ?? '',
-      role: 'tourist',
+      name: name,
+      phone: phone,
+      role: role,
+      emergencyContactPhone: emergencyContactPhone,
     );
     await _firestore.collection('users').doc(uid).set(newUser.toMap());
     return newUser;

@@ -21,16 +21,9 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _errorMessage;
 
   Future<void> _handleLogin() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
+    setState(() { _isLoading = true; _errorMessage = null; });
     try {
-      await _authService.login(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-      );
+      await _authService.login(email: _emailController.text.trim(), password: _passwordController.text);
     } on FirebaseAuthException catch (e) {
       setState(() => _errorMessage = _friendlyError(e.code));
     } finally {
@@ -39,12 +32,23 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleGoogleSignIn() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    setState(() { _isLoading = true; _errorMessage = null; });
     try {
-      await _authService.signInWithGoogle();
+      final user = await _authService.signInWithGoogle();
+      final googleAccount = _authService.currentUser;
+
+      if (user == null && googleAccount != null && mounted) {
+        // Signed in with Google but never registered — finish setup.
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => RegisterScreen(
+            prefilledName: googleAccount.displayName,
+            prefilledEmail: googleAccount.email,
+            isGoogleSignup: true,
+          )),
+        );
+      }
+      // If user != null: existing account, AuthGate routes them in
+      // automatically. If both are null: they cancelled the picker.
     } catch (e) {
       setState(() => _errorMessage = 'Google sign-in failed. Please try again.');
     } finally {
@@ -54,211 +58,97 @@ class _LoginScreenState extends State<LoginScreen> {
 
   String _friendlyError(String code) {
     switch (code) {
-      case 'user-not-found':
-        return 'No account found with this email.';
-      case 'wrong-password':
-        return 'Incorrect password. Please try again.';
-      case 'invalid-email':
-        return 'Please enter a valid email address.';
-      default:
-        return 'Something went wrong. Please try again.';
+      case 'user-not-found': return 'No account found with this email.';
+      case 'wrong-password': return 'Incorrect password. Please try again.';
+      case 'invalid-email': return 'Please enter a valid email address.';
+      default: return 'Something went wrong. Please try again.';
     }
   }
 
   InputDecoration _fieldDecoration(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
-      prefixIcon: Icon(icon, color: AppColors.primary),
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: Colors.grey.shade300),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.primary, width: 2),
-      ),
+      prefixIcon: Icon(icon, color: AppColors.gold),
+      suffixIcon: label == 'Password'
+          ? IconButton(
+              icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: AppColors.textOnNavyMuted),
+              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+            )
+          : null,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: GradientBackground(
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 24),
-                Container(
-                  height: 88,
-                  width: 88,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white.withOpacity(0.5), width: 2),
-                  ),
-                  child: const Icon(Icons.route_rounded, color: Colors.white, size: 46),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'WayMate',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 36,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Safe journeys, together',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, color: Colors.white.withOpacity(0.85)),
-                ),
-                const SizedBox(height: 32),
+      backgroundColor: AppColors.navy,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 24),
+              Container(
+                height: 76, width: 76, alignment: Alignment.center,
+                decoration: BoxDecoration(color: AppColors.navyCard, borderRadius: BorderRadius.circular(18)),
+                child: const Icon(Icons.route_rounded, color: AppColors.gold, size: 38),
+              ),
+              const SizedBox(height: 16),
+              const Text('WayMate', textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: Colors.white)),
+              const SizedBox(height: 4),
+              const Text('Safe journeys, together', textAlign: TextAlign.center, style: AppTextStyles.subheading),
+              const SizedBox(height: 32),
 
-                GlassCard(
-                  padding: const EdgeInsets.all(28),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text('Welcome Back', style: AppTextStyles.heading, textAlign: TextAlign.center),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Log in to continue',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: AppColors.textSecondary),
+              NavyCard(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text('Welcome Back', style: AppTextStyles.heading, textAlign: TextAlign.center),
+                    const SizedBox(height: 24),
+                    TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, style: AppTextStyles.body, decoration: _fieldDecoration('Email', Icons.email_outlined)),
+                    const SizedBox(height: 16),
+                    TextField(controller: _passwordController, obscureText: _obscurePassword, style: AppTextStyles.body, decoration: _fieldDecoration('Password', Icons.lock_outline)),
+                    const SizedBox(height: 20),
+                    if (_errorMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Text(_errorMessage!, style: const TextStyle(color: AppColors.sos, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
                       ),
-                      const SizedBox(height: 28),
-
-                      TextField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        style: AppTextStyles.body,
-                        decoration: _fieldDecoration('Email', Icons.email_outlined),
-                      ),
-                      const SizedBox(height: 18),
-
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        style: AppTextStyles.body,
-                        decoration: _fieldDecoration('Password', Icons.lock_outline).copyWith(
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                              color: Colors.grey.shade600,
-                            ),
-                            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                          ),
+                    ElevatedButton(
+                      onPressed: _isLoading ? null : _handleLogin,
+                      child: _isLoading
+                          ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 3, color: AppColors.navyDark))
+                          : const Text('Log In'),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(children: [
+                      const Expanded(child: Divider(color: AppColors.navyBorder)),
+                      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Text('or', style: TextStyle(color: AppColors.textOnNavyMuted))),
+                      const Expanded(child: Divider(color: AppColors.navyBorder)),
+                    ]),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: _isLoading ? null : _handleGoogleSignIn,
+                      icon: const Icon(Icons.g_mobiledata, size: 26),
+                      label: const Text('Continue with Google'),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text("Don't have an account?", style: TextStyle(color: AppColors.textOnNavySecondary)),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RegisterScreen())),
+                          child: const Text('Register', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      if (_errorMessage != null)
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(
-                            color: AppColors.sos.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: AppColors.sos.withOpacity(0.3)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.error_outline, color: AppColors.sos, size: 20),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _errorMessage!,
-                                  style: const TextStyle(color: AppColors.sos, fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      SizedBox(
-                        height: 58,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleLogin,
-                          style: ElevatedButton.styleFrom(
-                            elevation: 4,
-                            shadowColor: AppColors.primary.withOpacity(0.4),
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(
-                                  height: 24, width: 24,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
-                                )
-                              : const Text('Log In'),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      Row(
-                        children: [
-                          Expanded(child: Divider(color: Colors.grey.shade400)),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Text('or', style: TextStyle(color: AppColors.textSecondary)),
-                          ),
-                          Expanded(child: Divider(color: Colors.grey.shade400)),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      SizedBox(
-                        height: 56,
-                        child: OutlinedButton.icon(
-                          onPressed: _isLoading ? null : _handleGoogleSignIn,
-                          icon: const Icon(Icons.g_mobiledata, size: 28, color: Colors.black87),
-                          label: const Text(
-                            'Continue with Google',
-                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: Colors.black87),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            side: BorderSide(color: Colors.grey.shade300),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text("Don't have an account?", style: TextStyle(fontSize: 16, color: AppColors.textSecondary)),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                              );
-                            },
-                            child: const Text(
-                              'Register',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.primary),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

@@ -1,19 +1,17 @@
-
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:geocoding/geocoding.dart';
 
 class LocationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Battery _battery = Battery();
+  final Geocoding _geocoding = Geocoding();
 
-  /// Meters beyond which a tourist is considered "straying too far"
-  /// from their guide.
   static const double geofenceRadiusMeters = 500;
-
-  /// Battery percentage below which a low-battery alert fires.
   static const int lowBatteryThreshold = 15;
 
   bool _lowBatteryAlertSent = false;
@@ -41,12 +39,9 @@ class LocationService {
     );
   }
 
-  /// Reliable on-device address lookup — uses the phone's own
-  /// geocoding service (same one Google Maps uses), not a flaky
-  /// public web API. Android/iOS only, not web.
   Future<String> getAddressFromCoordinates(double lat, double lng) async {
     try {
-      final placemarks = await placemarkFromCoordinates(lat, lng);
+      final placemarks = await _geocoding.placemarkFromCoordinates(lat, lng);
       if (placemarks.isEmpty) return 'Address unavailable';
       final p = placemarks.first;
       final parts = [p.street, p.subLocality, p.locality].where((s) => s != null && s.isNotEmpty);
@@ -56,7 +51,6 @@ class LocationService {
     }
   }
 
-  /// Pushes location + current battery level to Firestore.
   Future<void> pushLocation({
     required String uid,
     required String? groupId,
@@ -78,18 +72,14 @@ class LocationService {
     });
   }
 
-  /// Straight-line distance in meters between two points.
   double distanceBetween(double lat1, double lng1, double lat2, double lng2) {
     return Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
   }
 
-  /// Live stream of every location document in a group.
   Stream<QuerySnapshot> groupLocationsStream(String groupId) {
     return _firestore.collection('locations').where('groupId', isEqualTo: groupId).snapshots();
   }
 
-  /// Finds the guide's current position within a group's location docs,
-  /// used both for the geofence check and for tourist-side map markers.
   Map<String, dynamic>? findGuideLocation(List<QueryDocumentSnapshot> docs) {
     for (final doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
@@ -98,8 +88,6 @@ class LocationService {
     return null;
   }
 
-  /// Checks if a tourist has strayed beyond the geofence radius from
-  /// their guide. Returns true if a warning should be shown/sent.
   bool isStrayingTooFar({
     required double touristLat,
     required double touristLng,
@@ -110,9 +98,6 @@ class LocationService {
     return distance > geofenceRadiusMeters;
   }
 
-  /// Checks current battery level; returns true (once) the moment it
-  /// crosses below the low-battery threshold, so callers can trigger
-  /// a one-time alert rather than repeating it every check.
   Future<bool> checkLowBatteryOnce() async {
     try {
       final level = await _battery.batteryLevel;
@@ -121,11 +106,58 @@ class LocationService {
         return true;
       }
       if (level > lowBatteryThreshold) {
-        _lowBatteryAlertSent = false; // reset if charged back up
+        _lowBatteryAlertSent = false;
       }
       return false;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Finds real nearby hospitals using OpenStreetMap's free Overpass
+  /// API — actual place data, not an AI guess. Returns name + distance,
+  /// sorted nearest first.
+  Future<List<Map<String, dynamic>>> findNearbyHospitals(double lat, double lng) async {
+    final query = '''
+      [out:json][timeout:15];
+      (
+        node["amenity"="hospital"](around:5000,$lat,$lng);
+        way["amenity"="hospital"](around:5000,$lat,$lng);
+      );
+      out center 8;
+    ''';
+
+    try {
+      final response = await http.post(
+        Uri.parse('https://overpass-api.de/api/interpreter'),
+        body: {'data': query},
+      );
+      if (response.statusCode != 200) return [];
+
+      final data = jsonDecode(response.body);
+      final elements = data['elements'] as List;
+
+      final hospitals = <Map<String, dynamic>>[];
+      for (final el in elements) {
+        final tags = el['tags'] as Map<String, dynamic>?;
+        final name = tags?['name'] as String? ?? 'Unnamed hospital';
+
+        double? hLat = el['lat'] as double?;
+        double? hLng = el['lon'] as double?;
+        if (hLat == null && el['center'] != null) {
+          hLat = el['center']['lat'] as double?;
+          hLng = el['center']['lon'] as double?;
+        }
+        if (hLat == null || hLng == null) continue;
+
+        final distanceMeters = distanceBetween(lat, lng, hLat, hLng);
+        hospitals.add({'name': name, 'distanceMeters': distanceMeters});
+      }
+
+      hospitals.sort((a, b) => (a['distanceMeters'] as double).compareTo(b['distanceMeters'] as double));
+      return hospitals.take(5).toList();
+    } catch (_) {
+      return [];
     }
   }
 }
