@@ -31,31 +31,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _handleGoogleSignIn() async {
-    setState(() { _isLoading = true; _errorMessage = null; });
-    try {
-      final user = await _authService.signInWithGoogle();
-      final googleAccount = _authService.currentUser;
-
-      if (user == null && googleAccount != null && mounted) {
-        // Signed in with Google but never registered — finish setup.
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => RegisterScreen(
-            prefilledName: googleAccount.displayName,
-            prefilledEmail: googleAccount.email,
-            isGoogleSignup: true,
-          )),
-        );
-      }
-      // If user != null: existing account, AuthGate routes them in
-      // automatically. If both are null: they cancelled the picker.
-    } catch (e) {
-      setState(() => _errorMessage = 'Google sign-in failed. Please try again.');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
   String _friendlyError(String code) {
     switch (code) {
       case 'user-not-found': return 'No account found with this email.';
@@ -121,18 +96,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: _isLoading
                           ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 3, color: AppColors.navyDark))
                           : const Text('Log In'),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(children: [
-                      const Expanded(child: Divider(color: AppColors.navyBorder)),
-                      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Text('or', style: TextStyle(color: AppColors.textOnNavyMuted))),
-                      const Expanded(child: Divider(color: AppColors.navyBorder)),
-                    ]),
-                    const SizedBox(height: 16),
-                    OutlinedButton.icon(
-                      onPressed: _isLoading ? null : _handleGoogleSignIn,
-                      icon: const Icon(Icons.g_mobiledata, size: 26),
-                      label: const Text('Continue with Google'),
                     ),
                     const SizedBox(height: 16),
                     Row(

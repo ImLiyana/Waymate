@@ -7,16 +7,7 @@ import '../../services/auth_service.dart';
 import '../../services/group_service.dart';
 
 class RegisterScreen extends StatefulWidget {
-  final String? prefilledName;
-  final String? prefilledEmail;
-  final bool isGoogleSignup;
-
-  const RegisterScreen({
-    this.prefilledName,
-    this.prefilledEmail,
-    this.isGoogleSignup = false,
-    super.key,
-  });
+  const RegisterScreen({super.key});
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -27,8 +18,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _authService = AuthService();
   final _groupService = GroupService();
 
-  late final TextEditingController _nameController;
-  late final TextEditingController _emailController;
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _emergencyContactController = TextEditingController();
@@ -40,13 +31,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _errorMessage;
 
   final _emailRegex = RegExp(r'^[\w.+-]+@gmail\.com$');
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.prefilledName ?? '');
-    _emailController = TextEditingController(text: widget.prefilledEmail ?? '');
-  }
 
   String? _validateName(String? v) => (v == null || v.trim().isEmpty) ? 'Please enter your name' : null;
 
@@ -69,7 +53,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   String? _validatePassword(String? v) {
-    if (widget.isGoogleSignup) return null; // no password needed for Google signup
     if (v == null || v.isEmpty) return 'Please enter a password';
     if (v.length < 6) return 'Password must be at least 6 characters';
     return null;
@@ -90,22 +73,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() { _isLoading = true; _errorMessage = null; });
 
     try {
-      final newUser = widget.isGoogleSignup
-          ? await _authService.completeGoogleProfile(
-              uid: _authService.currentUser!.uid,
-              name: _nameController.text.trim(),
-              phone: _phoneController.text.trim(),
-              role: _role,
-              emergencyContactPhone: _emergencyContactController.text.trim(),
-            )
-          : await _authService.register(
-              email: _emailController.text.trim(),
-              password: _passwordController.text,
-              name: _nameController.text.trim(),
-              phone: _phoneController.text.trim(),
-              role: _role,
-              emergencyContactPhone: _emergencyContactController.text.trim(),
-            );
+      final newUser = await _authService.register(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        name: _nameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        role: _role,
+        emergencyContactPhone: _emergencyContactController.text.trim(),
+      );
 
       if (_role == 'guide') {
         await _groupService.createGroupForGuide(guideId: newUser.uid, groupName: "${newUser.name}'s Group");
@@ -117,10 +92,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         }
       }
 
-      // For Google signup, AuthGate will automatically detect the new
-      // profile and route in — no manual pop needed, since there's no
-      // "previous screen" to go back to in that flow.
-      if (!widget.isGoogleSignup && mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop();
     } on FirebaseAuthException catch (e) {
       setState(() => _errorMessage = _friendlyError(e.code));
     } finally {
@@ -154,16 +126,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (!widget.isGoogleSignup)
-                  Row(children: [IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.arrow_back, color: Colors.white))]),
-                Text(
-                  widget.isGoogleSignup ? 'Almost done!' : 'Join WayMate',
+                Row(children: [IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.arrow_back, color: Colors.white))]),
+                const Text(
+                  'Join WayMate',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Colors.white),
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Colors.white),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  widget.isGoogleSignup ? 'Just a few more details to finish setting up' : 'Create your account to get started',
+                const Text(
+                  'Create your account to get started',
                   textAlign: TextAlign.center,
                   style: AppTextStyles.subheading,
                 ),
@@ -193,20 +164,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
                         style: AppTextStyles.body,
-                        enabled: !widget.isGoogleSignup,
                         decoration: _fieldDecoration('Email', Icons.email_outlined),
                         validator: _validateEmail,
                       ),
-                      if (!widget.isGoogleSignup) ...[
-                        const SizedBox(height: 14),
-                        TextFormField(
-                          controller: _passwordController, obscureText: _obscurePassword, style: AppTextStyles.body,
-                          decoration: _fieldDecoration('Password', Icons.lock_outline).copyWith(
-                            suffixIcon: IconButton(icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: AppColors.textOnNavyMuted), onPressed: () => setState(() => _obscurePassword = !_obscurePassword)),
-                          ),
-                          validator: _validatePassword,
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: _passwordController, obscureText: _obscurePassword, style: AppTextStyles.body,
+                        decoration: _fieldDecoration('Password', Icons.lock_outline).copyWith(
+                          suffixIcon: IconButton(icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: AppColors.textOnNavyMuted), onPressed: () => setState(() => _obscurePassword = !_obscurePassword)),
                         ),
-                      ],
+                        validator: _validatePassword,
+                      ),
                       const SizedBox(height: 14),
 
                       if (_role == 'tourist')
@@ -228,10 +196,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         onPressed: _isLoading ? null : _handleRegister,
                         child: _isLoading ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 3, color: AppColors.navyDark)) : const Text('Create Account'),
                       ),
-                      if (!widget.isGoogleSignup) ...[
-                        const SizedBox(height: 10),
-                        Center(child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Already have an account? Log In', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)))),
-                      ],
+                      const SizedBox(height: 10),
+                      Center(child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Already have an account? Log In', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)))),
                     ],
                   ),
                 ),

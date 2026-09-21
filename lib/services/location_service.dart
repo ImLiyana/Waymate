@@ -16,6 +16,16 @@ class LocationService {
 
   bool _lowBatteryAlertSent = false;
 
+  /// Requests location permission in the two steps Android requires:
+  /// foreground ("while using the app") first, then — only once that's
+  /// granted — background ("Allow all the time") as a SEPARATE prompt.
+  /// Android 11+ refuses to show both in one combined dialog; asking
+  /// for background before foreground is granted just fails silently.
+  ///
+  /// Returns true as long as foreground access was granted, even if
+  /// the user declines the background upgrade — the app still works
+  /// while open either way, background tracking just won't survive
+  /// minimizing the app without it.
   Future<bool> ensurePermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return false;
@@ -26,6 +36,18 @@ class LocationService {
       if (permission == LocationPermission.denied) return false;
     }
     if (permission == LocationPermission.deniedForever) return false;
+
+    // Foreground is granted at this point. Now ask for the background
+    // upgrade as its own, later call. On some Android versions/OEMs
+    // this shows the "Allow all the time" option directly; on others
+    // it has no effect and the user must grant it manually from
+    // Settings — either way, this attempt doesn't block foreground use.
+    if (permission == LocationPermission.whileInUse) {
+      try {
+        await Geolocator.requestPermission();
+      } catch (_) {}
+    }
+
     return true;
   }
 
@@ -69,7 +91,7 @@ class LocationService {
       'groupId': groupId,
       'role': role,
       'batteryLevel': batteryLevel,
-    });
+    }, SetOptions(merge: true));
   }
 
   double distanceBetween(double lat1, double lng1, double lat2, double lng2) {

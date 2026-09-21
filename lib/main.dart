@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'core/theme.dart';
 import 'firebase_options.dart';
 import 'services/auth_service.dart';
+import 'services/background_location_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/notification_service.dart';
@@ -14,8 +15,17 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-    await NotificationService.init();
+  await NotificationService.init();
+  await setupBackgroundLocationService();
   runApp(const WayMateApp());
+
+  // Requesting the notification permission is deferred until AFTER
+  // the first frame renders — doing it before runApp() showed the
+  // system dialog over a blank black screen, since Flutter hadn't
+  // drawn anything yet at that point.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    NotificationService.requestPermission();
+  });
 }
 
 class WayMateApp extends StatelessWidget {

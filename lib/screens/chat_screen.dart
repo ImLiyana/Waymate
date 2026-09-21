@@ -19,6 +19,22 @@ class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
 
+  @override
+  void initState() {
+    super.initState();
+    // Mark read as soon as the chat opens, so the drawer badge clears
+    // for whatever's already visible.
+    _chatService.markGroupRead(groupId: widget.groupId, uid: widget.currentUser.uid);
+  }
+
+  @override
+  void dispose() {
+    // Mark read again on the way out, to also cover messages that
+    // arrived WHILE the screen was open.
+    _chatService.markGroupRead(groupId: widget.groupId, uid: widget.currentUser.uid);
+    super.dispose();
+  }
+
   void _send() {
     final text = _controller.text;
     if (text.trim().isEmpty) return;
@@ -36,6 +52,99 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  Future<void> _showMessageOptions({
+    required String messageId,
+    required bool isMe,
+    required bool isPinned,
+    required bool isDeleted,
+  }) async {
+    if (isDeleted) return; // nothing to do with an already-deleted message
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.navyCard,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: AppColors.gold),
+              title: Text(isPinned ? 'Unpin message' : 'Pin message', style: const TextStyle(color: Colors.white)),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                if (isPinned) {
+                  await _chatService.unpinMessage(groupId: widget.groupId, messageId: messageId);
+                } else {
+                  await _chatService.pinMessage(groupId: widget.groupId, messageId: messageId);
+                }
+              },
+            ),
+            if (isMe)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: AppColors.sos),
+                title: const Text('Unsend', style: TextStyle(color: AppColors.sos)),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (c) => AlertDialog(
+                      backgroundColor: AppColors.navyCard,
+                      title: const Text('Unsend this message?', style: TextStyle(color: Colors.white)),
+                      content: const Text('This will remove it for everyone in the group.', style: TextStyle(color: AppColors.textOnNavySecondary)),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('Cancel')),
+                        TextButton(onPressed: () => Navigator.of(c).pop(true), child: const Text('Unsend', style: TextStyle(color: AppColors.sos))),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await _chatService.deleteMessage(groupId: widget.groupId, messageId: messageId);
+                  }
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPinnedBanner() {
+    return StreamBuilder<QueryDocumentSnapshot?>(
+      stream: _chatService.pinnedMessageStream(widget.groupId),
+      builder: (context, snapshot) {
+        final doc = snapshot.data;
+        if (doc == null) return const SizedBox.shrink();
+        final data = doc.data() as Map<String, dynamic>;
+        final senderName = data['senderName'] as String? ?? 'Member';
+        final text = data['text'] as String? ?? '';
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          color: AppColors.navyCard,
+          child: Row(children: [
+            const Icon(Icons.push_pin, color: AppColors.gold, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(senderName, style: const TextStyle(color: AppColors.gold, fontSize: 11, fontWeight: FontWeight.bold)),
+                  Text(text, style: const TextStyle(color: Colors.white, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: AppColors.textOnNavyMuted, size: 18),
+              onPressed: () => _chatService.unpinMessage(groupId: widget.groupId, messageId: doc.id),
+            ),
+          ]),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -43,6 +152,7 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(title: const Text('Group Chat')),
       body: Column(
         children: [
+          _buildPinnedBanner(),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _chatService.messagesStream(widget.groupId),
@@ -64,36 +174,61 @@ class _ChatScreenState extends State<ChatScreen> {
                   padding: const EdgeInsets.all(16),
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
                     final isMe = data['senderUid'] == widget.currentUser.uid;
                     final senderName = data['senderName'] as String? ?? 'Member';
-                    final text = data['text'] as String? ?? '';
+                    final isDeleted = data['deleted'] as bool? ?? false;
+                    final isPinned = data['pinned'] as bool? ?? false;
+                    final text = isDeleted ? 'This message was deleted' : (data['text'] as String? ?? '');
 
-                    return Align(
-                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                        decoration: BoxDecoration(
-                          color: isMe ? AppColors.gold : AppColors.navyCard,
-                          borderRadius: BorderRadius.only(
-                            topLeft: const Radius.circular(14),
-                            topRight: const Radius.circular(14),
-                            bottomLeft: Radius.circular(isMe ? 14 : 4),
-                            bottomRight: Radius.circular(isMe ? 4 : 14),
+                    return GestureDetector(
+                      onLongPress: () => _showMessageOptions(
+                        messageId: doc.id, isMe: isMe, isPinned: isPinned, isDeleted: isDeleted,
+                      ),
+                      child: Align(
+                        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                          decoration: BoxDecoration(
+                            color: isDeleted ? AppColors.navyCard : (isMe ? AppColors.gold : AppColors.navyCard),
+                            borderRadius: BorderRadius.only(
+                              topLeft: const Radius.circular(14),
+                              topRight: const Radius.circular(14),
+                              bottomLeft: Radius.circular(isMe ? 14 : 4),
+                              bottomRight: Radius.circular(isMe ? 4 : 14),
+                            ),
+                            border: isPinned ? Border.all(color: AppColors.gold, width: 1.2) : null,
                           ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (!isMe)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 2),
-                                child: Text(senderName, style: const TextStyle(color: AppColors.gold, fontSize: 11, fontWeight: FontWeight.bold)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (!isMe && !isDeleted)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 2),
+                                  child: Text(senderName, style: const TextStyle(color: AppColors.gold, fontSize: 11, fontWeight: FontWeight.bold)),
+                                ),
+                              if (isPinned && !isDeleted)
+                                const Padding(
+                                  padding: EdgeInsets.only(bottom: 2),
+                                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                    Icon(Icons.push_pin, color: AppColors.gold, size: 11),
+                                    SizedBox(width: 3),
+                                    Text('Pinned', style: TextStyle(color: AppColors.gold, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ]),
+                                ),
+                              Text(
+                                text,
+                                style: TextStyle(
+                                  color: isDeleted ? AppColors.textOnNavyMuted : (isMe ? AppColors.navyDark : Colors.white),
+                                  fontSize: 14,
+                                  fontStyle: isDeleted ? FontStyle.italic : FontStyle.normal,
+                                ),
                               ),
-                            Text(text, style: TextStyle(color: isMe ? AppColors.navyDark : Colors.white, fontSize: 14)),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     );
