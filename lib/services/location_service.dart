@@ -139,47 +139,95 @@ class LocationService {
   /// Finds real nearby hospitals using OpenStreetMap's free Overpass
   /// API — actual place data, not an AI guess. Returns name + distance,
   /// sorted nearest first.
-  Future<List<Map<String, dynamic>>> findNearbyHospitals(double lat, double lng) async {
-    final query = '''
-      [out:json][timeout:15];
-      (
-        node["amenity"="hospital"](around:5000,$lat,$lng);
-        way["amenity"="hospital"](around:5000,$lat,$lng);
-      );
-      out center 8;
-    ''';
+  Future<List<Map<String, dynamic>>> findNearbyHospitals(
+    double lat, double lng) async {
+      print('🚨 OVERPASS FUNCTION CALLED: $lat, $lng');
+  final query = '''
+[out:json][timeout:30];
+(
+  node["amenity"="hospital"](around:20000,$lat,$lng);
+  way["amenity"="hospital"](around:20000,$lat,$lng);
+  relation["amenity"="hospital"](around:20000,$lat,$lng);
+);
+out center;
+''';
 
-    try {
-      final response = await http.post(
-        Uri.parse('https://overpass-api.de/api/interpreter'),
-        body: {'data': query},
-      );
-      if (response.statusCode != 200) return [];
+  try {
+    print('OVERPASS SEARCH: $lat, $lng');
 
-      final data = jsonDecode(response.body);
-      final elements = data['elements'] as List;
+    final response = await http
+        .post(
+          Uri.parse('https://overpass-api.de/api/interpreter'),
+          body: {'data': query},
+        )
+        .timeout(const Duration(seconds: 35));
 
-      final hospitals = <Map<String, dynamic>>[];
-      for (final el in elements) {
-        final tags = el['tags'] as Map<String, dynamic>?;
-        final name = tags?['name'] as String? ?? 'Unnamed hospital';
+    print('OVERPASS STATUS: ${response.statusCode}');
+    print('OVERPASS RESPONSE LENGTH: ${response.body.length}');
 
-        double? hLat = el['lat'] as double?;
-        double? hLng = el['lon'] as double?;
-        if (hLat == null && el['center'] != null) {
-          hLat = el['center']['lat'] as double?;
-          hLng = el['center']['lon'] as double?;
-        }
-        if (hLat == null || hLng == null) continue;
-
-        final distanceMeters = distanceBetween(lat, lng, hLat, hLng);
-        hospitals.add({'name': name, 'distanceMeters': distanceMeters});
-      }
-
-      hospitals.sort((a, b) => (a['distanceMeters'] as double).compareTo(b['distanceMeters'] as double));
-      return hospitals.take(5).toList();
-    } catch (_) {
+    if (response.statusCode != 200) {
+      print('OVERPASS ERROR: ${response.body}');
       return [];
     }
+
+    final data = jsonDecode(response.body);
+    final elements = data['elements'] as List? ?? [];
+
+    print('OVERPASS ELEMENTS: ${elements.length}');
+
+    final hospitals = <Map<String, dynamic>>[];
+
+    for (final el in elements) {
+      final tags = el['tags'] as Map<String, dynamic>?;
+
+      final name = tags?['name']?.toString() ?? 'Unnamed hospital';
+
+      double? hLat;
+      double? hLng;
+
+      // Node
+      if (el['lat'] is num && el['lon'] is num) {
+        hLat = (el['lat'] as num).toDouble();
+        hLng = (el['lon'] as num).toDouble();
+      }
+
+      // Way / relation
+      if ((hLat == null || hLng == null) && el['center'] != null) {
+        final center = el['center'];
+
+        if (center['lat'] is num && center['lon'] is num) {
+          hLat = (center['lat'] as num).toDouble();
+          hLng = (center['lon'] as num).toDouble();
+        }
+      }
+
+      if (hLat == null || hLng == null) continue;
+
+      final distanceMeters = distanceBetween(
+        lat,
+        lng,
+        hLat,
+        hLng,
+      );
+
+      hospitals.add({
+        'name': name,
+        'distanceMeters': distanceMeters,
+        'lat': hLat,
+        'lng': hLng,
+      });
+    }
+
+    hospitals.sort(
+      (a, b) => (a['distanceMeters'] as double)
+          .compareTo(b['distanceMeters'] as double),
+    );
+
+    print('HOSPITALS FOUND: ${hospitals.length}');
+
+    return hospitals.take(5).toList();
+  } catch (e) {
+    print('OVERPASS EXCEPTION: $e');
+    return [];
   }
-}
+}}

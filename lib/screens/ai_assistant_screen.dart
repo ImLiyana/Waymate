@@ -30,7 +30,6 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   double? _currentLng;
 
   final _quickQuestions = [
-    'Nearest hospital?',
     'Weather today?',
     'Emergency numbers',
     'Local emergency phrases',
@@ -58,7 +57,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
 
   bool _isHospitalQuestion(String text) {
     final lower = text.toLowerCase();
-    return lower.contains('hospital') || lower.contains('medical') || lower.contains('clinic');
+    return lower.contains('hospital') || lower.contains('clinic');
   }
 
   Future<void> _send(String text) async {
@@ -72,16 +71,22 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
 
     String reply;
 
-    if (_isHospitalQuestion(text) && _currentLat != null && _currentLng != null) {
-      final hospitals = await _locationService.findNearbyHospitals(_currentLat!, _currentLng!);
-      if (hospitals.isNotEmpty) {
-        final lines = hospitals.map((h) {
-          final km = (h['distanceMeters'] as double) / 1000;
-          return '• ${h['name']} — ${km.toStringAsFixed(1)} km away';
-        }).join('\n');
-        reply = "Here are the nearest hospitals to your current location:\n\n$lines";
+    if (_isHospitalQuestion(text)) {
+      if (_currentLat != null && _currentLng != null) {
+        final hospitals = await _locationService.findNearbyHospitals(_currentLat!, _currentLng!);
+        if (hospitals.isNotEmpty) {
+          final lines = hospitals.map((h) {
+            final km = (h['distanceMeters'] as double) / 1000;
+            return '• ${h['name']} — ${km.toStringAsFixed(1)} km away';
+          }).join('\n');
+          reply = "Here are the nearest hospitals to your current location:\n\n$lines";
+        } else {
+          reply = "I couldn't find any hospitals within 1 km of you. For immediate help, open Google Maps and search \"hospital near me\", or call your local emergency number.";
+        }
       } else {
-        reply = "I couldn't find hospital data for your exact area right now. For immediate help, open Google Maps and search \"hospital near me\", or call your local emergency number.";
+        // Location not ready yet: retry loading it and ask the user to try again.
+        _loadLocation();
+        reply = "Still getting your location. Please try again in a moment.";
       }
     } else {
       final locationContext = _currentAddress != null
